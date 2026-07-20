@@ -1,0 +1,13 @@
+# Build output
+/reconductor
+/bin/
+
+# Scan output directories
+recon_*/
+
+# Editor / OS
+.DS_Store
+*.swp
+
+# Local task brief (not part of the portfolio project)
+read.md
