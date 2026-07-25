@@ -25,6 +25,8 @@ func DefaultModules() []modules.Module {
 	return []modules.Module{
 		modules.Subfinder{},
 		modules.Httpx{},
+		modules.Naabu{},
+		modules.Nmap{},
 	}
 }
 
