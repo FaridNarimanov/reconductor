@@ -27,6 +27,8 @@ func DefaultModules() []modules.Module {
 		modules.Httpx{},
 		modules.Naabu{},
 		modules.Nmap{},
+		modules.WhatWeb{},
+		modules.Feroxbuster{},
 	}
 }
 
