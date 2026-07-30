@@ -24,6 +24,7 @@ import (
 func DefaultModules() []modules.Module {
 	return []modules.Module{
 		modules.Subfinder{},
+		modules.DNSBrute{}, // aggressive-only; feeds httpx
 		modules.Httpx{},
 		modules.Naabu{},
 		modules.Nmap{},
