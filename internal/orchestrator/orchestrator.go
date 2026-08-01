@@ -30,6 +30,8 @@ func DefaultModules() []modules.Module {
 		modules.Nmap{},
 		modules.WhatWeb{},
 		modules.Feroxbuster{},
+		modules.ActiveDirectory{},
+		modules.Kerberos{}, // aggressive-only; needs DCs from ActiveDirectory
 	}
 }
 

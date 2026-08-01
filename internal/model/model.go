@@ -74,6 +74,23 @@ type Skipped struct {
 	Reason string `json:"reason"`
 }
 
+// SRVRecord is a single DNS SRV answer used for AD detection.
+type SRVRecord struct {
+	Query  string `json:"query"`
+	Target string `json:"target"`
+	Port   uint16 `json:"port"`
+}
+
+// ADResult holds Active Directory detection and (aggressive) recon output.
+type ADResult struct {
+	Detected          bool        `json:"detected"`
+	DomainControllers []string    `json:"domain_controllers,omitempty"`
+	SRVRecords        []SRVRecord `json:"srv_records,omitempty"`
+	NamingContexts    []string    `json:"naming_contexts,omitempty"`
+	SMBShares         []string    `json:"smb_shares,omitempty"`
+	ValidUsers        []string    `json:"valid_users,omitempty"`
+}
+
 // State is the single mutable object shared across the whole pipeline. All
 // mutating helpers are guarded by a mutex so modules may run concurrently.
 type State struct {
@@ -89,6 +106,8 @@ type State struct {
 	Services   []Service        `json:"services"`
 	WebTech    []WebTechFinding `json:"web_tech"`
 	Content    []ContentFinding `json:"content"`
+
+	AD ADResult `json:"active_directory"`
 
 	Errors []ModuleError `json:"errors"`
 	Skips  []Skipped     `json:"skipped"`
@@ -158,6 +177,38 @@ func (s *State) AddContent(c ContentFinding) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Content = append(s.Content, c)
+}
+
+// SetAD stores the Active Directory result.
+func (s *State) SetAD(ad ADResult) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AD = ad
+}
+
+// ADSnapshot returns a copy of the current AD result for read-only use by later
+// modules (e.g. Kerberos enumeration needs the discovered domain controllers).
+func (s *State) ADSnapshot() ADResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.AD
+}
+
+// AddADUsers merges Kerberos-validated usernames into the AD result.
+func (s *State) AddADUsers(users []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := make(map[string]bool, len(s.AD.ValidUsers))
+	for _, u := range s.AD.ValidUsers {
+		seen[u] = true
+	}
+	for _, u := range users {
+		if u == "" || seen[u] {
+			continue
+		}
+		seen[u] = true
+		s.AD.ValidUsers = append(s.AD.ValidUsers, u)
+	}
 }
 
 // AddError records a non-fatal module error.
