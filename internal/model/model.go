@@ -74,6 +74,13 @@ type Skipped struct {
 	Reason string `json:"reason"`
 }
 
+// RealIPFinding is a candidate origin IP discovered behind a CDN/WAF.
+type RealIPFinding struct {
+	IP        string `json:"ip"`
+	Technique string `json:"technique"`
+	Detail    string `json:"detail"`
+}
+
 // SRVRecord is a single DNS SRV answer used for AD detection.
 type SRVRecord struct {
 	Query  string `json:"query"`
@@ -107,7 +114,8 @@ type State struct {
 	WebTech    []WebTechFinding `json:"web_tech"`
 	Content    []ContentFinding `json:"content"`
 
-	AD ADResult `json:"active_directory"`
+	RealIPs []RealIPFinding `json:"real_ips"`
+	AD      ADResult        `json:"active_directory"`
 
 	Errors []ModuleError `json:"errors"`
 	Skips  []Skipped     `json:"skipped"`
@@ -177,6 +185,27 @@ func (s *State) AddContent(c ContentFinding) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Content = append(s.Content, c)
+}
+
+// AddRealIP records a candidate origin IP, de-duplicating on IP+technique.
+func (s *State) AddRealIP(f RealIPFinding) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, x := range s.RealIPs {
+		if x.IP == f.IP && x.Technique == f.Technique {
+			return
+		}
+	}
+	s.RealIPs = append(s.RealIPs, f)
+}
+
+// SubdomainsCopy returns a copy of the discovered subdomains.
+func (s *State) SubdomainsCopy() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.Subdomains))
+	copy(out, s.Subdomains)
+	return out
 }
 
 // SetAD stores the Active Directory result.
