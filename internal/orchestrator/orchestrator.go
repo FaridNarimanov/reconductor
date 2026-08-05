@@ -19,10 +19,12 @@ import (
 	"reconductor/internal/progress"
 )
 
-// DefaultModules returns the pipeline in execution order. New modules plug in
-// here without touching the orchestrator itself.
+// DefaultModules returns the MVP pipeline in execution order. New modules
+// (real-IP, AD, wayback, JS, WAF, robots, bucket) plug in here without
+// touching the orchestrator itself.
 func DefaultModules() []modules.Module {
 	return []modules.Module{
+		// Core pipeline (MVP).
 		modules.Subfinder{},
 		modules.DNSBrute{}, // aggressive-only; feeds httpx
 		modules.Httpx{},
@@ -30,9 +32,15 @@ func DefaultModules() []modules.Module {
 		modules.Nmap{},
 		modules.WhatWeb{},
 		modules.Feroxbuster{},
+		// Extended modules (independent, plug in without disturbing the core).
+		modules.JSAnalysis{}, // consumes feroxbuster .js results
 		modules.RealIP{},
 		modules.ActiveDirectory{},
 		modules.Kerberos{}, // aggressive-only; needs DCs from ActiveDirectory
+		modules.Wayback{},
+		modules.WAF{},
+		modules.Robots{},
+		modules.Buckets{},
 	}
 }
 

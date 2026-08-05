@@ -1,6 +1,6 @@
 // Package model defines the shared data structures that flow through the recon
 // pipeline. Every module reads from and writes to a single *State value which is
-// serialized into the final report at the end of the run.
+// serialized into the final JSON/HTML report at the end of the run.
 package model
 
 import (
@@ -22,7 +22,9 @@ type Target struct {
 	Kind TargetKind `json:"kind"`
 	// Value is the raw user input (domain name, IP, or CIDR string).
 	Value string `json:"value"`
-	// Hosts is the concrete list of hosts to work with.
+	// Hosts is the concrete list of hosts to work with. For a domain this is the
+	// domain itself (subdomains get appended by the subfinder module); for an IP
+	// it is the single IP; for a CIDR it is every host address in the range.
 	Hosts []string `json:"hosts"`
 }
 
@@ -61,19 +63,6 @@ type ContentFinding struct {
 	ContentLength int64  `json:"content_length"`
 }
 
-// ModuleError records a non-fatal failure so the run can continue and still
-// surface what went wrong in the final report.
-type ModuleError struct {
-	Module string `json:"module"`
-	Err    string `json:"error"`
-}
-
-// Skipped records a module or data source that was intentionally not run.
-type Skipped struct {
-	Module string `json:"module"`
-	Reason string `json:"reason"`
-}
-
 // RealIPFinding is a candidate origin IP discovered behind a CDN/WAF.
 type RealIPFinding struct {
 	IP        string `json:"ip"`
@@ -98,6 +87,48 @@ type ADResult struct {
 	ValidUsers        []string    `json:"valid_users,omitempty"`
 }
 
+// WAFFinding records a detected WAF/CDN vendor for a host.
+type WAFFinding struct {
+	URL      string `json:"url"`
+	Vendor   string `json:"vendor"`
+	Evidence string `json:"evidence"`
+}
+
+// RobotsFinding is a single path extracted from robots.txt or sitemap.xml.
+type RobotsFinding struct {
+	Host   string `json:"host"`
+	Source string `json:"source"`
+	Path   string `json:"path"`
+}
+
+// BucketFinding is a probed cloud storage bucket candidate.
+type BucketFinding struct {
+	Name       string `json:"name"`
+	URL        string `json:"url"`
+	Status     int    `json:"status"`
+	Accessible bool   `json:"accessible"`
+}
+
+// JSFinding holds endpoints extracted from a single JavaScript file.
+type JSFinding struct {
+	File      string   `json:"file"`
+	Endpoints []string `json:"endpoints"`
+}
+
+// ModuleError records a non-fatal failure so the run can continue and still
+// surface what went wrong in the final report.
+type ModuleError struct {
+	Module string `json:"module"`
+	Err    string `json:"error"`
+}
+
+// Skipped records a module or data source that was intentionally not run
+// (e.g. a missing API key or a --skip flag).
+type Skipped struct {
+	Module string `json:"module"`
+	Reason string `json:"reason"`
+}
+
 // State is the single mutable object shared across the whole pipeline. All
 // mutating helpers are guarded by a mutex so modules may run concurrently.
 type State struct {
@@ -116,6 +147,11 @@ type State struct {
 
 	RealIPs []RealIPFinding `json:"real_ips"`
 	AD      ADResult        `json:"active_directory"`
+	Wayback []string        `json:"wayback_urls"`
+	WAF     []WAFFinding    `json:"waf"`
+	Robots  []RobotsFinding `json:"robots_sitemap"`
+	Buckets []BucketFinding `json:"cloud_buckets"`
+	JS      []JSFinding     `json:"js_findings"`
 
 	Errors []ModuleError `json:"errors"`
 	Skips  []Skipped     `json:"skipped"`
@@ -199,15 +235,6 @@ func (s *State) AddRealIP(f RealIPFinding) {
 	s.RealIPs = append(s.RealIPs, f)
 }
 
-// SubdomainsCopy returns a copy of the discovered subdomains.
-func (s *State) SubdomainsCopy() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]string, len(s.Subdomains))
-	copy(out, s.Subdomains)
-	return out
-}
-
 // SetAD stores the Active Directory result.
 func (s *State) SetAD(ad ADResult) {
 	s.mu.Lock()
@@ -238,6 +265,73 @@ func (s *State) AddADUsers(users []string) {
 		seen[u] = true
 		s.AD.ValidUsers = append(s.AD.ValidUsers, u)
 	}
+}
+
+// AddWayback merges historical URLs, de-duplicating.
+func (s *State) AddWayback(urls []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := make(map[string]bool, len(s.Wayback))
+	for _, x := range s.Wayback {
+		seen[x] = true
+	}
+	for _, u := range urls {
+		if u == "" || seen[u] {
+			continue
+		}
+		seen[u] = true
+		s.Wayback = append(s.Wayback, u)
+	}
+}
+
+// AddWAF records a WAF/CDN detection.
+func (s *State) AddWAF(f WAFFinding) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.WAF = append(s.WAF, f)
+}
+
+// AddRobots records a robots.txt/sitemap.xml path.
+func (s *State) AddRobots(f RobotsFinding) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Robots = append(s.Robots, f)
+}
+
+// AddBucket records a probed cloud bucket candidate.
+func (s *State) AddBucket(f BucketFinding) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Buckets = append(s.Buckets, f)
+}
+
+// AddJS records endpoints extracted from a JavaScript file.
+func (s *State) AddJS(f JSFinding) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.JS = append(s.JS, f)
+}
+
+// Snapshot helpers used by modules that only need to read a slice safely.
+
+// SubdomainsCopy returns a copy of the discovered subdomains.
+func (s *State) SubdomainsCopy() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.Subdomains))
+	copy(out, s.Subdomains)
+	return out
+}
+
+// ContentURLs returns a copy of all discovered content URLs.
+func (s *State) ContentURLs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.Content))
+	for _, c := range s.Content {
+		out = append(out, c.URL)
+	}
+	return out
 }
 
 // AddError records a non-fatal module error.
