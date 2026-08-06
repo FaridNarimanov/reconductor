@@ -1,6 +1,7 @@
-// Command reconductor is an all-in-one recon aggregator that orchestrates
-// several popular open-source tools (subfinder, httpx, naabu, nmap, whatweb,
-// feroxbuster) into a single pipeline.
+// Command reconductor is an all-in-one recon aggregator that orchestrates several
+// popular open-source tools (subfinder, httpx, naabu, nmap, whatweb,
+// feroxbuster) and renders the results as a terminal table plus JSON and HTML
+// reports.
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"reconductor/internal/model"
 	"reconductor/internal/modules"
 	"reconductor/internal/orchestrator"
+	"reconductor/internal/report"
 	"reconductor/internal/scope"
 )
 
@@ -55,7 +57,26 @@ func run() int {
 	orch := orchestrator.New(color)
 	orch.Run(context.Background(), cfg, st, os.Stdout)
 
-	fmt.Printf("\nScan complete. Output directory: %s\n", outDir)
+	// Always write JSON.
+	jsonPath, err := report.WriteJSON(st, outDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error writing JSON report: %v\n", err)
+	}
+
+	if cfg.JSONOnly {
+		fmt.Printf("\nJSON report: %s\n", jsonPath)
+		return 0
+	}
+
+	// Terminal summary + HTML.
+	report.PrintSummary(st, os.Stdout, color)
+
+	htmlPath, err := report.WriteHTML(st, outDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error writing HTML report: %v\n", err)
+	}
+
+	fmt.Printf("Reports written:\n  JSON: %s\n  HTML: %s\n", jsonPath, htmlPath)
 	return 0
 }
 
